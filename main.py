@@ -1,8 +1,14 @@
 #!/usr/bin/python3
-from __future__ import print_function
 import os
 import sys
+import json
 import pickle
+import base64
+import email
+import requests
+import parse_message
+from io import StringIO
+from email.generator import Generator
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -33,20 +39,52 @@ def setup():
     return creds
 
 def get_labels(service):
-    results = service.users().labels().list(userId='me').execute()
-    return results.get('labels', [])
+    request = service.users().labels().list(userId='me')
+    response = request.execute()
+    return response.get('labels', [])
+
+def get_messages(service):
+    request = service.users().messages().list(userId='me')
+    response = request.execute()
+    return response
+
+def get_mime_message(service, user_id, message_id):
+    mime_message = None
+    try:
+        request = service.users().messages().get(userId=user_id, id=message_id, format='raw')
+        message = request.execute()
+        content = base64.urlsafe_b64decode(message['raw'].encode('utf-8')).decode('utf-8')
+        mime_message = email.message_from_string(content)
+    except Exception as e:
+        print(e)
+    return mime_message
+
+def convert_to_str(mime_message):
+    print(mime_message)
+    fp = StringIO()
+    g = Generator(fp, mangle_from_=True, maxheaderlen=60)
+    g.flatten(mime_message)
+    return fp.getvalue()
 
 def main():
     creds = setup()
-
     if not creds:
         print('Error setting up credentials')
         sys.exit(0)
 
     service = build('gmail', 'v1', credentials=creds)
 
-    labels = get_labels(service)
+    messages = get_messages(service)['messages']
+    for i in range(5):
+        # Just print one for now as a test
+        result = get_mime_message(service, 'me', messages[i]['id'])
+        result_str = convert_to_str(result)
+        parse_message.parse_message(result_str)
+        return
 
+    return
+
+    labels = get_labels(service)
     if not labels:
         print('No labels found.')
     else:
